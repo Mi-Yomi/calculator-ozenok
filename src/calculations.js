@@ -97,11 +97,26 @@ export function getGrade(score) {
   return GRADE_SCALE.find(g => score >= g.min) || GRADE_SCALE.at(-1)
 }
 
+export function getWeeks(period) {
+  return period === 'semester'
+    ? { weeks1: [1, 2, 3, 4, 5, 6, 7, 8, 9], weeks2: [10, 11, 12, 13, 14, 15] }
+    : { weeks1: [1, 2, 3, 4, 5], weeks2: [6, 7, 8, 9, 10] }
+}
+
+export function migrateSemesterWeeks(subject, period) {
+  if (period !== 'semester' || (!subject.grades.tk2[8] && !subject.grades.tk2[9])) return subject
+  const grades = { tk1: { ...subject.grades.tk1 }, tk2: { ...subject.grades.tk2 } }
+  for (const week of [8, 9]) {
+    if (!grades.tk2[week]) continue
+    grades.tk1[week] = { ...grades.tk2[week], ...grades.tk1[week] }
+    delete grades.tk2[week]
+  }
+  return { ...subject, grades }
+}
+
 export function computeResults(subject, period) {
   const sc = SCENARIOS.find(s => s.id === subject.scenario) || SCENARIOS[0]
-  const sem = period === 'semester'
-  const weeks1 = sem ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5]
-  const weeks2 = sem ? [8, 9, 10, 11, 12, 13, 14, 15] : [6, 7, 8, 9, 10]
+  const { weeks1, weeks2 } = getWeeks(period)
   const counts = {}
   const invalidCells = []
   let hasZero = false
@@ -109,8 +124,8 @@ export function computeResults(subject, period) {
     const values = []
     for (const week of weeks) {
       const value = normalizeCell(subject.grades[p]?.[week]?.[key])
-      if (value === 'нп') continue
-      const score = value === '' || value === 'ня' ? 0 : parseScore(value)
+      if (value === '' || value === 'нп') continue
+      const score = value === 'ня' ? 0 : parseScore(value)
       if (score === null) invalidCells.push({ period: p, week, key })
       values.push(score ?? 0)
       if (score === 0) hasZero = true

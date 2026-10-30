@@ -1,4 +1,4 @@
-import { SCENARIOS, computeResults, normalizeCell, parseScore } from './calculations.js'
+import { SCENARIOS, computeResults, getWeeks, migrateSemesterWeeks, normalizeCell, parseScore } from './calculations.js'
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
@@ -7,9 +7,7 @@ function escHtml(s) {
 export function analyzeSubject(subject, period) {
   const r = computeResults(subject, period)
   const sc = r.sc
-  const sem = period === 'semester'
-  const weeks1 = sem ? [1,2,3,4,5,6,7] : [1,2,3,4,5]
-  const weeks2 = sem ? [8,9,10,11,12,13,14,15] : [6,7,8,9,10]
+  const { weeks1, weeks2 } = getWeeks(period)
 
   const hasExam = r.hasExam
   const io = hasExam ? r.io : null
@@ -24,8 +22,8 @@ export function analyzeSubject(subject, period) {
       sc.types.forEach(t => {
         const val = subject.grades[pKey]?.[w]?.[t.key]
         const normalized = normalizeCell(val)
-        if (normalized === 'нп') return
-        const num = normalized === '' || normalized === 'ня' ? 0 : parseScore(normalized)
+        if (normalized === '' || normalized === 'нп') return
+        const num = normalized === 'ня' ? 0 : parseScore(normalized)
         if (num !== null && num < 70) {
           lowGrades.push({ week: w, type: t.label, typeKey: t.key, value: num, period: pNum })
         }
@@ -148,7 +146,7 @@ tr:last-child td{border-bottom:none}
   <span class="badge ${allOk ? 'badge-ok' : hasFailure ? 'badge-no' : 'badge-pending'}">${allOk ? 'Порог 70 выполнен по всем предметам' : hasFailure ? 'Есть предметы с ИО ниже 70' : 'Не все результаты известны'}</span>
 </div>
 
-<p>Ориентировочная проверка порога 70; регламент 2026 года не устанавливает условия назначения стипендии. Пустые ячейки и НЯ учтены как 0, НП исключены. Расчёт за весь выбранный период; будущие недели делают результат предварительным.</p>
+<p>Ориентировочная проверка порога 70; регламент 2026 года не устанавливает условия назначения стипендии. Пустые ячейки и НП исключены из расчёта; НЯ и явно введённый 0 учитываются как ноль. До завершения дисциплины результат предварительный.</p>
 <h2 style="border-bottom-color:${themeColor}">Сводка</h2>
 <table>
 <thead><tr><th>Предмет</th><th>РД</th><th>Экзамен</th><th>ИО</th><th>Оценка</th><th>Стипендия</th><th>Мин. экзамен</th></tr></thead>
@@ -174,9 +172,7 @@ ${subjectSections}
 
 export function generateCSV(subjects, period) {
   const sep = ';'
-  const sem = period === 'semester'
-  const weeks1 = sem ? [1,2,3,4,5,6,7] : [1,2,3,4,5]
-  const weeks2 = sem ? [8,9,10,11,12,13,14,15] : [6,7,8,9,10]
+  const { weeks1, weeks2 } = getWeeks(period)
   const allTypes = ['lecture', 'practice', 'lab', 'srop']
   const header = ['Предмет','Сценарий','Строка','Неделя','Лек','Практ','Лаб','СРОП','Все занятия завершены','Посещаемость 100%','Задания в срок']
 
@@ -224,7 +220,7 @@ function parseCSVLine(line, sep) {
   return result
 }
 
-export function parseImportCSV(text) {
+export function parseImportCSV(text, period = 'semester') {
   const content = text.replace(/^\uFEFF/, '')
   const firstLine = content.split('\n')[0]
   const sep = firstLine.includes(';') ? ';' : ','
@@ -303,6 +299,6 @@ export function parseImportCSV(text) {
     }
   }
 
-  const result = Array.from(subjectsMap.values())
+  const result = Array.from(subjectsMap.values(), s => migrateSemesterWeeks(s, period))
   return result.length > 0 ? result : null
 }

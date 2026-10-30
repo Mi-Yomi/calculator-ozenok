@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
-import { GRADE_SCALE, SCENARIOS, EMPTY_SUBJECT_DATA, computeResults, normalizeCell, parseScore } from './calculations.js'
+import { GRADE_SCALE, SCENARIOS, EMPTY_SUBJECT_DATA, computeResults, migrateSemesterWeeks, normalizeCell, parseScore } from './calculations.js'
 import { analyzeSubject, downloadFile, generateHTMLReport, generateCSV, parseImportCSV } from './reports.js'
 
 const THEMES = [
@@ -24,7 +24,7 @@ export default function App() {
       const saved = localStorage.getItem('calc-subjects')
       if (saved) {
         const parsed = JSON.parse(saved)
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(s => migrateSemesterWeeks(s, period))
       }
     } catch { /* Повреждённое или недоступное хранилище: начальные данные ниже. */ }
     return [{ id: 1, name: 'Предмет 1', ...EMPTY_SUBJECT_DATA }]
@@ -162,7 +162,7 @@ export default function App() {
     const reader = new FileReader()
     reader.onload = (ev) => {
       const text = ev.target.result
-      const imported = parseImportCSV(text)
+      const imported = parseImportCSV(text, period)
       if (imported && imported.length > 0) {
         setSubjects(imported)
         setActiveId(imported[0].id)
@@ -282,9 +282,9 @@ export default function App() {
 
         {/* ===== NP Hint ===== */}
         <div className="np-hint">
-          Расчёт за весь выбранный период: пустые ячейки и <strong>НЯ</strong> считаются нулём.
-          <strong> НП</strong> исключает неделю без запланированного оценивания. Будущие недели делают результат предварительным.
-          Введите оценки 0–100; просроченные оценки оставляйте нулевыми.
+          Пустые ячейки считаются <strong>НП</strong> и не влияют на среднее.
+          <strong> НЯ</strong> и явно введённый <strong>0</strong> учитываются как ноль.
+          Для просроченной оценки введите 0. До завершения дисциплины результат предварительный.
         </div>
 
         {/* ===== Grade Input Periods ===== */}
@@ -331,7 +331,7 @@ export default function App() {
                                 value={cellDisplay(raw)}
                                 onChange={e => setG(pr.key, w, t.key, e.target.value)}
                                 onBlur={() => handleCellBlur(pr.key, w, t.key)}
-                                placeholder="—"
+                                placeholder="НП"
                                 className={`cell-input ${isNpVal ? 'is-np' : ''}`}
                               />
                             </td>
@@ -484,7 +484,8 @@ export default function App() {
             </ul>
             <p>Нормы указаны за семестр. ТК — до 23:59 среды следующей недели;
               РК — до 23:59 субботы рубежной недели по академическому календарю.
-              Не выставленная в срок оценка и НЯ учитываются как 0; НП не входит в среднее.</p>
+              Для не выставленной в срок оценки введите 0; НЯ учитывается как 0.
+              Пустая ячейка и НП не входят в среднее.</p>
             <p>FX: одна пересдача экзамена без повторного изучения дисциплины.
               F: повторное изучение дисциплины. Апелляция — в течение 24 часов после выставления оценки.</p>
           </details>
