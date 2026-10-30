@@ -1,72 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
-
-const GRADE_SCALE = [
-  { letter: 'A',  gpa: 4.0,  min: 95, max: 100, trad: 'Отлично' },
-  { letter: 'A-', gpa: 3.67, min: 90, max: 94,  trad: 'Отлично' },
-  { letter: 'B+', gpa: 3.33, min: 85, max: 89,  trad: 'Хорошо' },
-  { letter: 'B',  gpa: 3.0,  min: 80, max: 84,  trad: 'Хорошо' },
-  { letter: 'B-', gpa: 2.67, min: 75, max: 79,  trad: 'Хорошо' },
-  { letter: 'C+', gpa: 2.33, min: 70, max: 74,  trad: 'Удовлетворительно' },
-  { letter: 'C',  gpa: 2.0,  min: 65, max: 69,  trad: 'Удовлетворительно' },
-  { letter: 'C-', gpa: 1.67, min: 60, max: 64,  trad: 'Удовлетворительно' },
-  { letter: 'D+', gpa: 1.33, min: 55, max: 59,  trad: 'Удовлетворительно' },
-  { letter: 'D-', gpa: 1.0,  min: 50, max: 54,  trad: 'Удовлетворительно' },
-  { letter: 'FX', gpa: 0.5,  min: 25, max: 49,  trad: 'Неудовлетворительно' },
-  { letter: 'F',  gpa: 0,    min: 0,  max: 24,  trad: 'Неудовлетворительно' },
-]
-
-const SCENARIOS = [
-  {
-    id: 'all',
-    name: 'Все виды занятий',
-    desc: 'Лекции + Практика + Лаб + СРОП',
-    types: [
-      { key: 'lecture', label: 'Лек', c: 0.2 },
-      { key: 'practice', label: 'Практ', c: 0.3 },
-      { key: 'lab', label: 'Лаб', c: 0.3 },
-      { key: 'srop', label: 'СРОП', c: 0.2 },
-    ],
-  },
-  {
-    id: 'noLab',
-    name: 'Без лабораторных',
-    desc: 'Лекции + Практика + СРОП',
-    types: [
-      { key: 'lecture', label: 'Лек', c: 0.3 },
-      { key: 'practice', label: 'Практ', c: 0.5 },
-      { key: 'srop', label: 'СРОП', c: 0.2 },
-    ],
-  },
-  {
-    id: 'noPractice',
-    name: 'Без практики',
-    desc: 'Лекции + Лаб + СРОП',
-    types: [
-      { key: 'lecture', label: 'Лек', c: 0.3 },
-      { key: 'lab', label: 'Лаб', c: 0.5 },
-      { key: 'srop', label: 'СРОП', c: 0.2 },
-    ],
-  },
-  {
-    id: 'onlyPractice',
-    name: 'Без лекций и лаб',
-    desc: 'Практика + СРОП',
-    types: [
-      { key: 'practice', label: 'Практ', c: 0.9 },
-      { key: 'srop', label: 'СРОП', c: 0.1 },
-    ],
-  },
-  {
-    id: 'onlyLecture',
-    name: 'Без практики и лаб',
-    desc: 'Лекции + СРОП',
-    types: [
-      { key: 'lecture', label: 'Лек', c: 0.5 },
-      { key: 'srop', label: 'СРОП', c: 0.5 },
-    ],
-  },
-]
+import { GRADE_SCALE, SCENARIOS, EMPTY_SUBJECT_DATA, computeResults, normalizeCell, parseScore } from './calculations.js'
+import { analyzeSubject, downloadFile, generateHTMLReport, generateCSV, parseImportCSV } from './reports.js'
 
 const THEMES = [
   { id: 'blue',    name: 'Синий',       color: '#007AFF', color2: '#5856D6', light: 'rgba(0,122,255,0.12)',  ring: 'rgba(0,122,255,0.2)' },
@@ -78,369 +13,6 @@ const THEMES = [
   { id: 'red',     name: 'Красный',     color: '#FF3B30', color2: '#FF9500', light: 'rgba(255,59,48,0.12)',   ring: 'rgba(255,59,48,0.2)' },
   { id: 'pink',    name: 'Розовый',     color: '#FF2D55', color2: '#AF52DE', light: 'rgba(255,45,85,0.12)',   ring: 'rgba(255,45,85,0.2)' },
 ]
-
-const EMPTY_SUBJECT_DATA = {
-  scenario: 'all',
-  grades: { tk1: {}, tk2: {} },
-  rkInput: { rk1: '', rk2: '' },
-  exam: '',
-}
-
-function getGrade(score) {
-  const r = Math.round(score)
-  return GRADE_SCALE.find(g => r >= g.min && r <= g.max) || GRADE_SCALE[GRADE_SCALE.length - 1]
-}
-
-function isNp(v) {
-  if (typeof v !== 'string') return false
-  const n = v.trim().toLowerCase()
-  return n === 'нп' || n === 'np' || n === 'н.п.' || n === 'н.п'
-}
-
-function normalizeCell(v) {
-  if (typeof v !== 'string' || v.trim() === '') return ''
-  if (isNp(v)) return 'нп'
-  const num = parseFloat(v)
-  if (!isNaN(num)) return String(Math.min(100, Math.max(0, num)))
-  return v
-}
-
-function computeResults(subject, period) {
-  const sc = SCENARIOS.find(s => s.id === subject.scenario)
-  const sem = period === 'semester'
-  const weeks1 = sem ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5]
-  const weeks2 = sem ? [8, 9, 10, 11, 12, 13, 14, 15] : [6, 7, 8, 9, 10]
-
-  const avg = (p, weeks, key) => {
-    const v = weeks
-      .map(w => subject.grades[p]?.[w]?.[key])
-      .filter(x => x !== undefined && x !== '' && x !== 'нп' && !isNaN(x))
-      .map(Number)
-    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0
-  }
-
-  const tkTotal = (p, weeks) =>
-    sc.types.reduce((sum, t) => sum + t.c * avg(p, weeks, t.key), 0)
-
-  const tk1 = tkTotal('tk1', weeks1)
-  const tk2 = tkTotal('tk2', weeks2)
-  const rk1 = subject.rkInput.rk1 === '' ? 0 : Math.min(100, Math.max(0, +subject.rkInput.rk1))
-  const rk2 = subject.rkInput.rk2 === '' ? 0 : Math.min(100, Math.max(0, +subject.rkInput.rk2))
-  const p1 = 0.7 * tk1 + 0.3 * rk1
-  const p2 = 0.7 * tk2 + 0.3 * rk2
-  const rd = (p1 + p2) / 2
-
-  const conditions = [
-    { label: 'РК1 >= 25', ok: rk1 >= 25, value: rk1 },
-    { label: 'РК2 >= 25', ok: rk2 >= 25, value: rk2 },
-    { label: '(РК1+РК2)/2 >= 50', ok: (rk1 + rk2) / 2 >= 50, value: ((rk1 + rk2) / 2).toFixed(1) },
-    { label: 'РД >= 50', ok: rd >= 50, value: rd.toFixed(1) },
-  ]
-  const admitted = conditions.every(c => c.ok)
-
-  const examVal = subject.exam === '' ? 0 : Math.min(100, Math.max(0, +subject.exam))
-  const io = 0.6 * rd + 0.4 * examVal
-  const grade = getGrade(io)
-
-  return { tk1, tk2, rk1, rk2, p1, p2, rd, conditions, admitted, examVal, io, grade, sc, weeks1, weeks2 }
-}
-
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
-}
-
-function analyzeSubject(subject, period) {
-  const r = computeResults(subject, period)
-  const sc = SCENARIOS.find(s => s.id === subject.scenario)
-  const sem = period === 'semester'
-  const weeks1 = sem ? [1,2,3,4,5,6,7] : [1,2,3,4,5]
-  const weeks2 = sem ? [8,9,10,11,12,13,14,15] : [6,7,8,9,10]
-
-  const hasExam = subject.exam !== '' && r.admitted
-  const io = hasExam ? r.io : null
-  const onStipend = io !== null && io >= 70
-
-  const reqExam = r.rd > 0 ? Math.ceil((70 - 0.6 * r.rd) / 0.4) : 100
-  const examPossible = reqExam <= 100
-
-  const lowGrades = []
-  const checkP = (pKey, weeks, pNum) => {
-    weeks.forEach(w => {
-      sc.types.forEach(t => {
-        const val = subject.grades[pKey]?.[w]?.[t.key]
-        if (val === 'нп' || val === undefined || val === '') return
-        const num = Number(val)
-        if (!isNaN(num) && num < 70) {
-          lowGrades.push({ week: w, type: t.label, typeKey: t.key, value: num, period: pNum })
-        }
-      })
-    })
-  }
-  checkP('tk1', weeks1, 1)
-  checkP('tk2', weeks2, 2)
-
-  return {
-    name: subject.name, rd: r.rd, rk1: r.rk1, rk2: r.rk2,
-    tk1: r.tk1, tk2: r.tk2, p1: r.p1, p2: r.p2,
-    hasExam, examVal: r.examVal, io, grade: r.grade,
-    admitted: r.admitted, onStipend, reqExam, examPossible, lowGrades,
-  }
-}
-
-function downloadFile(content, filename, type) {
-  const blob = new Blob([content], { type })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-function generateHTMLReport(subjects, period, themeColor) {
-  const analyses = subjects.map(s => analyzeSubject(s, period))
-  const withExam = analyses.filter(a => a.hasExam)
-  const hasAny = withExam.length > 0
-  const allOk = hasAny && withExam.every(a => a.onStipend)
-
-  const subjectSections = analyses.map(a => {
-    const needsWork = a.hasExam && !a.onStipend
-    const noExam = !a.hasExam
-
-    let recs = ''
-    if (needsWork || noExam) {
-      const lines = []
-      if (a.admitted) {
-        if (a.examPossible) {
-          lines.push(`<p><strong>Минимальный балл за экзамен для стипендии:</strong> <span style="color:${themeColor};font-size:18px;font-weight:700">${Math.max(0, a.reqExam)}</span> из 100</p>`)
-        } else {
-          lines.push(`<p style="color:#FF3B30"><strong>Невозможно получить ИО >= 70 даже с максимальным баллом за экзамен (100).</strong></p>`)
-          lines.push(`<p>Текущий РД: ${a.rd.toFixed(1)}. Необходимо повысить РД минимум до ${((70 - 40) / 0.6).toFixed(1)} для стипендии при экзамене = 100.</p>`)
-        }
-      } else {
-        lines.push(`<p style="color:#FF3B30"><strong>Студент не допущен к экзамену.</strong> Необходимо выполнить условия допуска (РК1 >= 25, РК2 >= 25, среднее РК >= 50, РД >= 50).</p>`)
-      }
-
-      if (a.lowGrades.length > 0) {
-        lines.push(`<h4 style="margin:12px 0 8px">Недели с оценками ниже 70 (рекомендуется исправить):</h4>`)
-        lines.push(`<table><thead><tr><th>Период</th><th>Неделя</th><th>Тип</th><th>Текущая</th><th>Рекомендуется</th></tr></thead><tbody>`)
-        a.lowGrades.forEach(g => {
-          lines.push(`<tr class="low-grade"><td>ТК${g.period}</td><td>${g.week}</td><td>${escHtml(g.type)}</td><td style="color:#FF3B30;font-weight:600">${g.value}</td><td style="color:#34C759;font-weight:600">70+</td></tr>`)
-        })
-        lines.push(`</tbody></table>`)
-      }
-
-      recs = `<div class="recommendation">${lines.join('\n')}</div>`
-    }
-
-    return `<div class="subject-section">
-  <h2>${escHtml(a.name)}</h2>
-  <div class="metrics">
-    <div class="metric"><span class="metric-value">${a.rd.toFixed(1)}</span><span class="metric-label">РД</span></div>
-    <div class="metric"><span class="metric-value">${a.hasExam ? a.examVal : '—'}</span><span class="metric-label">Экзамен</span></div>
-    <div class="metric"><span class="metric-value ${a.hasExam ? (a.io >= 70 ? 'ok' : 'bad') : ''}">${a.hasExam ? a.io.toFixed(1) : '—'}</span><span class="metric-label">ИО</span></div>
-    <div class="metric"><span class="metric-value">${a.hasExam ? a.grade.letter : '—'}</span><span class="metric-label">Оценка</span></div>
-    <div class="metric"><span class="metric-value ${a.hasExam ? (a.onStipend ? 'ok' : 'bad') : ''}">${a.hasExam ? (a.onStipend ? 'Да' : 'Нет') : '—'}</span><span class="metric-label">Стипендия</span></div>
-  </div>
-  ${recs}
-</div>`
-  }).join('\n')
-
-  return `<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Отчёт по стипендии — АУЭС</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',-apple-system,sans-serif;max-width:800px;margin:0 auto;padding:40px 24px;color:#1c1c1e;line-height:1.6}
-h1{font-size:28px;color:${themeColor};margin-bottom:4px}
-h2{font-size:20px;margin:28px 0 14px;padding-bottom:8px;border-bottom:2px solid ${themeColor}}
-h3{font-size:17px;margin:16px 0 8px}
-h4{font-size:15px;color:#1c1c1e}
-.subtitle{color:#6e6e73;font-size:14px;margin-bottom:24px}
-table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
-th{padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6e6e73;border-bottom:2px solid #e5e5ea}
-td{padding:8px 12px;border-bottom:1px solid #e5e5ea}
-tr:last-child td{border-bottom:none}
-.ok{color:#34C759;font-weight:600}
-.bad{color:#FF3B30;font-weight:600}
-.badge{display:inline-block;padding:8px 20px;border-radius:20px;font-weight:600;font-size:16px}
-.badge-ok{background:rgba(52,199,89,.1);color:#34C759}
-.badge-no{background:rgba(255,59,48,.1);color:#FF3B30}
-.badge-pending{background:#f2f2f7;color:#6e6e73}
-.recommendation{background:#FFFCE8;border-left:4px solid #FFCC00;padding:14px 18px;margin:16px 0;border-radius:0 8px 8px 0}
-.recommendation p{margin:6px 0}
-.summary-box{padding:20px;background:#f2f2f7;border-radius:12px;margin:20px 0;text-align:center}
-.metrics{display:flex;gap:16px;flex-wrap:wrap;margin:12px 0}
-.metric{flex:1;min-width:80px;text-align:center;padding:12px;background:#f2f2f7;border-radius:10px}
-.metric-value{display:block;font-size:22px;font-weight:700}
-.metric-label{display:block;font-size:11px;color:#6e6e73;text-transform:uppercase;letter-spacing:.5px;margin-top:4px}
-.low-grade{background:rgba(255,59,48,.04)}
-.subject-section{margin-bottom:32px;page-break-inside:avoid}
-.author{font-size:12px;color:#aeaeb2;margin-top:40px;text-align:center;border-top:1px solid #e5e5ea;padding-top:16px}
-@media print{body{padding:20px}h2{page-break-before:auto}.subject-section{page-break-inside:avoid}}
-</style>
-</head>
-<body>
-<h1>Отчёт по стипендии</h1>
-<p class="subtitle">АУЭС им. Г. Даукеева | ${new Date().toLocaleDateString('ru-RU')} | Автор калькулятора: Anuar Lukpanov Сиб-24-7Б</p>
-
-<div class="summary-box">
-  <span class="badge ${allOk ? 'badge-ok' : hasAny ? 'badge-no' : 'badge-pending'}">${allOk ? 'Студент остаётся на стипендии' : hasAny ? 'Студент теряет стипендию' : 'Нет данных для расчёта'}</span>
-</div>
-
-<h2 style="border-bottom-color:${themeColor}">Сводка</h2>
-<table>
-<thead><tr><th>Предмет</th><th>РД</th><th>Экзамен</th><th>ИО</th><th>Оценка</th><th>Стипендия</th><th>Мин. экзамен</th></tr></thead>
-<tbody>
-${analyses.map(a => `<tr>
-<td><strong>${escHtml(a.name)}</strong></td>
-<td>${a.rd.toFixed(1)}</td>
-<td>${a.hasExam ? a.examVal : '—'}</td>
-<td class="${a.hasExam ? (a.io >= 70 ? 'ok' : 'bad') : ''}">${a.hasExam ? a.io.toFixed(1) : '—'}</td>
-<td>${a.hasExam ? a.grade.letter : '—'}</td>
-<td>${a.hasExam ? (a.onStipend ? '<span class="ok">Да</span>' : '<span class="bad">Нет</span>') : '—'}</td>
-<td>${a.admitted ? (a.examPossible ? Math.max(0, a.reqExam) : 'Невозможно') : 'Не допущен'}</td>
-</tr>`).join('\n')}
-</tbody>
-</table>
-
-${subjectSections}
-
-<p class="author">Сгенерировано калькулятором оценок АУЭС</p>
-</body>
-</html>`
-}
-
-function generateCSV(subjects, period) {
-  const sep = ';'
-  const sem = period === 'semester'
-  const weeks1 = sem ? [1,2,3,4,5,6,7] : [1,2,3,4,5]
-  const weeks2 = sem ? [8,9,10,11,12,13,14,15] : [6,7,8,9,10]
-  const allTypes = ['lecture', 'practice', 'lab', 'srop']
-  const header = ['Предмет','Сценарий','Строка','Неделя','Лек','Практ','Лаб','СРОП']
-
-  const rows = []
-  subjects.forEach(s => {
-    weeks1.forEach(w => {
-      const vals = allTypes.map(t => s.grades.tk1?.[w]?.[t] ?? '')
-      rows.push([s.name, s.scenario, 'ТК1', w, ...vals])
-    })
-    rows.push([s.name, s.scenario, 'РК1', '', s.rkInput.rk1, '', '', ''])
-    weeks2.forEach(w => {
-      const vals = allTypes.map(t => s.grades.tk2?.[w]?.[t] ?? '')
-      rows.push([s.name, s.scenario, 'ТК2', w, ...vals])
-    })
-    rows.push([s.name, s.scenario, 'РК2', '', s.rkInput.rk2, '', '', ''])
-    rows.push([s.name, s.scenario, 'Экзамен', '', s.exam, '', '', ''])
-  })
-
-  const bom = '\uFEFF'
-  const csvRows = [
-    header.map(h => `"${h}"`).join(sep),
-    ...rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(sep))
-  ]
-  return bom + csvRows.join('\n')
-}
-
-function parseCSVLine(line, sep) {
-  const result = []
-  let current = ''
-  let inQuotes = false
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]
-    if (inQuotes) {
-      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++ }
-      else if (ch === '"') inQuotes = false
-      else current += ch
-    } else {
-      if (ch === '"') inQuotes = true
-      else if (ch === sep) { result.push(current); current = '' }
-      else current += ch
-    }
-  }
-  result.push(current)
-  return result
-}
-
-function parseImportCSV(text) {
-  const content = text.replace(/^\uFEFF/, '')
-  const firstLine = content.split('\n')[0]
-  const sep = firstLine.includes(';') ? ';' : ','
-  const lines = content.split('\n').filter(l => l.trim())
-  if (lines.length < 2) return null
-
-  const header = parseCSVLine(lines[0], sep).map(h => h.trim().toLowerCase())
-  const idx = (keywords) => header.findIndex(h => keywords.some(k => h.includes(k)))
-  const nameI = idx(['предмет'])
-  const scenI = idx(['сценарий'])
-  const typeI = idx(['строка'])
-  const weekI = idx(['неделя'])
-  const lekI = idx(['лек'])
-  const practI = idx(['практ'])
-  const labI = idx(['лаб'])
-  const sropI = idx(['сроп'])
-  if (nameI === -1) return null
-
-  const subjectsMap = new Map()
-  let counter = 0
-
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i], sep)
-    const name = cols[nameI]?.trim()
-    if (!name) continue
-
-    if (!subjectsMap.has(name)) {
-      subjectsMap.set(name, {
-        id: Date.now() + (++counter),
-        name,
-        scenario: cols[scenI]?.trim() || 'all',
-        grades: { tk1: {}, tk2: {} },
-        rkInput: { rk1: '', rk2: '' },
-        exam: '',
-      })
-    }
-
-    const subj = subjectsMap.get(name)
-    const rowType = cols[typeI]?.trim()
-    const week = cols[weekI]?.trim()
-
-    if (scenI >= 0 && cols[scenI]?.trim()) {
-      const sc = cols[scenI].trim()
-      if (SCENARIOS.find(s => s.id === sc)) subj.scenario = sc
-    }
-
-    const gradeRow = (target, w) => {
-      if (!target[w]) target[w] = {}
-      const set = (i, key) => {
-        if (i >= 0 && cols[i] !== undefined) {
-          const v = cols[i].trim()
-          if (v) target[w][key] = isNp(v) ? 'нп' : v
-        }
-      }
-      set(lekI, 'lecture'); set(practI, 'practice'); set(labI, 'lab'); set(sropI, 'srop')
-    }
-
-    if (rowType === 'ТК1' && week) {
-      const w = parseInt(week)
-      if (!isNaN(w)) gradeRow(subj.grades.tk1, w)
-    } else if (rowType === 'ТК2' && week) {
-      const w = parseInt(week)
-      if (!isNaN(w)) gradeRow(subj.grades.tk2, w)
-    } else if (rowType === 'РК1') {
-      subj.rkInput.rk1 = lekI >= 0 ? (cols[lekI]?.trim() || '') : ''
-    } else if (rowType === 'РК2') {
-      subj.rkInput.rk2 = lekI >= 0 ? (cols[lekI]?.trim() || '') : ''
-    } else if (rowType === 'Экзамен') {
-      subj.exam = lekI >= 0 ? (cols[lekI]?.trim() || '') : ''
-    }
-  }
-
-  const result = Array.from(subjectsMap.values())
-  return result.length > 0 ? result : null
-}
 
 export default function App() {
   const [period, setPeriod] = useState(() => {
@@ -454,7 +26,7 @@ export default function App() {
         const parsed = JSON.parse(saved)
         if (Array.isArray(parsed) && parsed.length > 0) return parsed
       }
-    } catch {}
+    } catch { /* Повреждённое или недоступное хранилище: начальные данные ниже. */ }
     return [{ id: 1, name: 'Предмет 1', ...EMPTY_SUBJECT_DATA }]
   })
 
@@ -462,7 +34,7 @@ export default function App() {
     try {
       const saved = localStorage.getItem('calc-activeId')
       if (saved) return +saved
-    } catch {}
+    } catch { /* При недоступном хранилище выбирается первый предмет. */ }
     return 1
   })
 
@@ -499,14 +71,14 @@ export default function App() {
       localStorage.setItem('calc-activeId', String(activeId))
       localStorage.setItem('calc-theme', theme)
       localStorage.setItem('calc-mode', mode)
-    } catch {}
+    } catch { /* Калькулятор работает и без сохранения в хранилище браузера. */ }
   }, [period, subjects, activeId, theme, mode])
 
   const active = subjects.find(s => s.id === activeId) || subjects[0]
   const r = computeResults(active, period)
 
   const updateActive = (fn) =>
-    setSubjects(subs => subs.map(s => s.id === activeId ? fn(s) : s))
+    setSubjects(subs => subs.map(s => s.id === active.id ? fn(s) : s))
 
   const setG = (p, w, key, val) =>
     updateActive(s => ({
@@ -524,7 +96,7 @@ export default function App() {
     if (normalized !== val) setG(p, w, key, normalized)
   }
 
-  const cellDisplay = (v) => v === 'нп' ? 'н.п.' : (v ?? '')
+  const cellDisplay = (v) => v === 'нп' ? 'н.п.' : v === 'ня' ? 'н.я.' : (v ?? '')
 
   const setRk = (key, val) =>
     updateActive(s => ({ ...s, rkInput: { ...s.rkInput, [key]: val } }))
@@ -539,7 +111,7 @@ export default function App() {
     updateActive(s => ({ ...s, name: val }))
 
   const resetActive = () =>
-    updateActive(s => ({ ...s, grades: { tk1: {}, tk2: {} }, rkInput: { rk1: '', rk2: '' }, exam: '' }))
+    updateActive(s => ({ ...s, ...EMPTY_SUBJECT_DATA, scenario: s.scenario }))
 
   const addSubject = () => {
     const id = Date.now()
@@ -559,9 +131,8 @@ export default function App() {
     setPeriod(p)
     setSubjects(subs => subs.map(s => ({
       ...s,
-      grades: { tk1: {}, tk2: {} },
-      rkInput: { rk1: '', rk2: '' },
-      exam: '',
+      ...EMPTY_SUBJECT_DATA,
+      scenario: s.scenario,
     })))
   }
 
@@ -570,9 +141,8 @@ export default function App() {
     name: s.name, id: s.id, exam: s.exam,
     ...computeResults(s, period),
   }))
-  const subjectsWithExam = allResults.filter(s => s.exam !== '' && s.admitted)
-  const hasAnyExam = subjectsWithExam.length > 0
-  const stipend = hasAnyExam && subjectsWithExam.every(s => s.io >= 70)
+  const hasFailure = allResults.some(s => s.hasExam && s.io < 70)
+  const stipend = allResults.length > 0 && allResults.every(s => s.hasExam && s.io >= 70)
 
   const currentTheme = THEMES.find(t => t.id === theme) || THEMES[0]
 
@@ -712,7 +282,9 @@ export default function App() {
 
         {/* ===== NP Hint ===== */}
         <div className="np-hint">
-          Введите <strong>нп</strong> в ячейку для отметки «н.п.» (не предусмотрено) — такая оценка не влияет на расчёт
+          Расчёт за весь выбранный период: пустые ячейки и <strong>НЯ</strong> считаются нулём.
+          <strong> НП</strong> исключает неделю без запланированного оценивания. Будущие недели делают результат предварительным.
+          Введите оценки 0–100; просроченные оценки оставляйте нулевыми.
         </div>
 
         {/* ===== Grade Input Periods ===== */}
@@ -745,10 +317,15 @@ export default function App() {
                         <td className="td-wk">{w}</td>
                         {r.sc.types.map(t => {
                           const raw = active.grades[pr.key]?.[w]?.[t.key]
-                          const isNpVal = raw === 'нп'
+                          const normalized = normalizeCell(raw)
+                          const isNpVal = normalized === 'нп'
+                          const invalid = normalized !== '' && !['нп', 'ня'].includes(normalized) && parseScore(normalized) === null
                           return (
                             <td key={t.key}>
                               <input
+                                aria-label={`${pr.title}, неделя ${w}, ${t.label}`}
+                                aria-invalid={invalid}
+                                title={invalid ? "Введите 0–100, НП или НЯ" : "0–100, НП или НЯ"}
                                 type="text"
                                 inputMode="text"
                                 value={cellDisplay(raw)}
@@ -775,6 +352,8 @@ export default function App() {
                   type="number"
                   min="0"
                   max="100"
+                  aria-label={pr.rkLabel}
+                  step="any"
                   value={active.rkInput[pr.rkKey]}
                   onChange={e => setRk(pr.rkKey, e.target.value)}
                   placeholder="0–100"
@@ -855,6 +434,11 @@ export default function App() {
           {/* Admission Conditions */}
           <div className="admission">
             <h3>Допуск к экзамену</h3>
+            <label className="regulation-check">
+              <input type="checkbox" checked={active.courseCompleted === true}
+                onChange={e => updateActive(s => ({ ...s, courseCompleted: e.target.checked }))} />
+              Завершены все виды занятий по дисциплине
+            </label>
             <div className="cond-list">
               {r.conditions.map(c => (
                 <div key={c.label} className={`cond ${c.ok ? 'ok' : 'no'}`}>
@@ -869,6 +453,42 @@ export default function App() {
             </div>
           </div>
 
+          <div className="admission">
+            <h3>Экзамен автоматом</h3>
+            <label className="regulation-check">
+              <input type="checkbox" checked={active.fullAttendance === true}
+                onChange={e => updateActive(s => ({ ...s, fullAttendance: e.target.checked }))} />
+              Посещаемость 100%
+            </label>
+            <label className="regulation-check">
+              <input type="checkbox" checked={active.allTasksOnTime === true}
+                onChange={e => updateActive(s => ({ ...s, allTasksOnTime: e.target.checked }))} />
+              Все задания выполнены в срок
+            </label>
+            <p className="regulation-note">Нужны допуск, РК1 и РК2 ≥ 50, отсутствие нулей за задания.
+              Автомат выставляет преподаватель; при несогласии можно сдать экзамен.</p>
+            <button className="btn-primary" disabled={!r.autoEligible}
+              onClick={() => setExam(String(r.rd))}>
+              Принять автомат от преподавателя (ИК = РД)
+            </button>
+          </div>
+
+          <details className="regulation-note">
+            <summary>Количество оценок и сроки по регламенту</summary>
+            <ul>
+              {r.assessmentCounts.map(c => (
+                <li key={c.key}>{c.label}: {c.count} / {c.minimum ? 'не менее ' : ''}{c.expected}
+                  {c.key === 'lecture' ? ' (включая РК1 и РК2)' : ''}
+                  {c.ok ? ' ✓' : ' — проверьте журнал и отметки НП'}</li>
+              ))}
+            </ul>
+            <p>Нормы указаны за семестр. ТК — до 23:59 среды следующей недели;
+              РК — до 23:59 субботы рубежной недели по академическому календарю.
+              Не выставленная в срок оценка и НЯ учитываются как 0; НП не входит в среднее.</p>
+            <p>FX: одна пересдача экзамена без повторного изучения дисциплины.
+              F: повторное изучение дисциплины. Апелляция — в течение 24 часов после выставления оценки.</p>
+          </details>
+
           {/* Exam */}
           {r.admitted && (
             <div className="exam-section">
@@ -880,6 +500,7 @@ export default function App() {
                   type="number"
                   min="0"
                   max="100"
+                  step="any"
                   value={active.exam}
                   onChange={e => setExam(e.target.value)}
                   placeholder="0–100"
@@ -887,7 +508,11 @@ export default function App() {
                 />
               </div>
 
-              {active.exam !== '' && (
+              {active.exam !== '' && r.examVal === null && (
+                <p role="alert">Оценка за экзамен должна быть числом от 0 до 100.</p>
+              )}
+
+              {r.hasExam && (
                 <div className="final-section">
                   <p className="final-formula">
                     ИО = 0.6 × {r.rd.toFixed(1)} + 0.4 × {r.examVal} ={' '}
@@ -902,7 +527,7 @@ export default function App() {
                     </div>
                     <div className="grade-meta">
                       <span className="gm-score">
-                        {Math.round(r.io)} баллов
+                        {r.io.toFixed(1)} баллов
                       </span>
                       <span className="gm-trad">{r.grade.trad}</span>
                     </div>
@@ -912,8 +537,8 @@ export default function App() {
                     <span className="stipend-inline-icon">{r.io >= 70 ? '✓' : '✗'}</span>
                     <span>
                       {r.io >= 70
-                        ? 'Оценка достаточна для стипендии (ИО >= 70)'
-                        : 'Оценка недостаточна для стипендии (ИО < 70)'}
+                        ? 'Порог ИО ≥ 70 выполнен'
+                        : 'Порог ИО ≥ 70 не выполнен'}
                     </span>
                   </div>
                 </div>
@@ -929,12 +554,12 @@ export default function App() {
               <h2>Стипендия — Сводка</h2>
             </div>
             <p className="stipend-hint">
-              Для сохранения стипендии ИО по каждому предмету должна быть не ниже 70 баллов
+              Ориентировочная проверка ИО ≥ 70 по всем предметам. Условия назначения стипендии в приложенном регламенте не установлены.
             </p>
 
             <div className="stipend-list">
               {allResults.map(s => {
-                const hasExam = s.exam !== '' && s.admitted
+                const hasExam = s.hasExam
                 const ok = hasExam && s.io >= 70
                 const analysis = analyzeSubject(
                   subjects.find(sub => sub.id === s.id),
@@ -978,12 +603,10 @@ export default function App() {
               })}
             </div>
 
-            <div className={`stipend-badge ${!hasAnyExam ? 'pending' : stipend ? 'yes' : 'no'}`}>
-              {!hasAnyExam
-                ? 'Введите оценки за экзамены для расчёта стипендии'
-                : stipend
-                  ? 'Студент остаётся на стипендии'
-                  : 'Студент теряет стипендию'}
+            <div className={`stipend-badge ${stipend ? 'yes' : hasFailure ? 'no' : 'pending'}`}>
+              {stipend ? 'Порог 70 выполнен по всем предметам'
+                : hasFailure ? 'Есть предметы с ИО ниже 70'
+                  : 'Не все результаты известны'}
             </div>
           </section>
         )}
@@ -996,10 +619,7 @@ export default function App() {
               <div
                 key={g.letter}
                 className={`scale-item ${
-                  active.exam !== '' &&
-                  r.admitted &&
-                  Math.round(r.io) >= g.min &&
-                  Math.round(r.io) <= g.max
+                  r.hasExam && r.grade.letter === g.letter
                     ? 'active'
                     : ''
                 }`}
@@ -1043,7 +663,7 @@ export default function App() {
       </main>
 
       <footer className="footer">
-        <p>Создано на основе регламента АУЭС им. Гумарбека Даукеева, 2025</p>
+        <p>Создано на основе предоставленного регламента АУЭС им. Гумарбека Даукеева, 2026</p>
       </footer>
 
       {/* ===== Settings Modal ===== */}
